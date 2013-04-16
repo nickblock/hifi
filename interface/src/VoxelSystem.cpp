@@ -13,12 +13,15 @@
 #include <SharedUtil.h>
 #include <OctalCode.h>
 #include "VoxelSystem.h"
+#include "Shader.h"
 
 const int MAX_VOXELS_PER_SYSTEM = 1500000; //250000;
 
-const int VERTICES_PER_VOXEL = 8;
+const int VERTICES_PER_VOXEL = 24;
+
+const int CORNER_POINTS_PER_VOXEL = 3 * 8;
 const int VERTEX_POINTS_PER_VOXEL = 3 * VERTICES_PER_VOXEL;
-const int INDICES_PER_VOXEL = 3 * 12;
+const int INDICES_PER_VOXEL = 36;
 
 float identityVertices[] = { 0, 0, 0,
                             1, 0, 0,
@@ -29,17 +32,37 @@ float identityVertices[] = { 0, 0, 0,
                             1, 1, 1,
                             0, 1, 1 };
 
-GLubyte identityIndices[] = { 0,1,2, 0,2,3,
+GLubyte cornerIndices[] = { 0,1,2, 0,2,3,
                               0,1,5, 0,4,5,
                               0,3,7, 0,4,7,
                               1,2,6, 1,5,6,
                               2,3,7, 2,6,7,
                               4,5,6, 4,6,7 };
 
+
+
+GLubyte vertexFaceIndices[] = {
+                            0,1,2, 0,2,3,
+                            4,5,6,4,7,6,
+                            8,9,10, 8,11,10,
+                            12,13,14,12,15,14,
+                            16,17,18,16,19,18,
+                            20,21,22,20,22,23};
+
+
+ float  normals[] = {0, 0, -1,
+                     0, -1, 0,
+                     -1, 0, 0,
+                     1, 0, 0,
+                     0, 1, 0,
+                     0, 0, 1};
+
+
 VoxelSystem::VoxelSystem() {
     voxelsRendered = 0;
     tree = new VoxelTree();
     pthread_mutex_init(&bufferWriteLock, NULL);
+
 }
 
 VoxelSystem::~VoxelSystem() {    
@@ -47,6 +70,7 @@ VoxelSystem::~VoxelSystem() {
     delete[] writeVerticesArray;
     delete[] readColorsArray;
     delete[] writeColorsArray;
+    delete[] readNormalsArray;
     delete tree;
     pthread_mutex_destroy(&bufferWriteLock);
 }
@@ -108,14 +132,40 @@ void VoxelSystem::setupNewVoxelsForDrawing() {
 void VoxelSystem::copyWrittenDataToReadArrays() {
     // lock on the buffer write lock so we can't modify the data when the GPU is reading it
     pthread_mutex_lock(&bufferWriteLock);
-    // store a pointer to the current end so it doesn't change during copy
-    GLfloat *endOfCurrentVerticesData = writeVerticesEndPointer;
-    // copy the vertices and colors
-    memcpy(readVerticesArray, writeVerticesArray, (endOfCurrentVerticesData - writeVerticesArray) * sizeof(GLfloat));
-    memcpy(readColorsArray, writeColorsArray, (endOfCurrentVerticesData - writeVerticesArray) * sizeof(GLubyte));
-    
+
+    GLfloat* readVertexCurrent = readVerticesArray;
+    GLubyte* readColorCurrent = readColorsArray;
+    GLfloat* readNormalCurrent = readNormalsArray;
+    GLfloat* writeVerticesCurrent = writeVerticesArray;
+    GLubyte* writeColorCurrent = writeColorsArray;
+
+    for(int l=0; l<voxelsRendered; l++)
+    {
+        for(int i=0; i<6; i++)  //for each face
+        {
+            for(int j=0; j<6; j++) //for each vertex per face
+            {
+                int index = (i*6)+j;
+                int writeIndex = vertexFaceIndices[index] * 3;
+                int readIndex = cornerIndices[index] * 3;
+                for(int k=0; k<3; k++)
+                {
+                    readVertexCurrent[writeIndex+k] = writeVerticesCurrent[readIndex+k];
+                    readColorCurrent[writeIndex+k] = writeColorCurrent[readIndex+k];
+                    readNormalCurrent[writeIndex+k] = normals[(i*3) + k]; //the 6 vertices of each face will share the same normal
+                }
+            }
+        }
+        readVertexCurrent += VERTEX_POINTS_PER_VOXEL;
+        readNormalCurrent += VERTEX_POINTS_PER_VOXEL;
+        readColorCurrent += VERTEX_POINTS_PER_VOXEL;
+        writeVerticesCurrent += CORNER_POINTS_PER_VOXEL;
+        writeColorCurrent += CORNER_POINTS_PER_VOXEL;
+    }
+
     // set the read vertices end pointer to the correct spot so the GPU knows how much to pull
-    readVerticesEndPointer = readVerticesArray + (endOfCurrentVerticesData - writeVerticesArray);
+    readVerticesEndPointer = readVertexCurrent;
+
     pthread_mutex_unlock(&bufferWriteLock);
 }
 
@@ -152,27 +202,27 @@ int VoxelSystem::treeToArrays(VoxelNode *currentNode, float nodePosition[3]) {
             }
         }
     }
-    
-   
-    
     // if we didn't get any voxels added then we're a leaf
     // add our vertex and color information to the interleaved array
     if (voxelsAdded == 0 && currentNode->color[3] == 1) {
         float * startVertex = firstVertexForCode(currentNode->octalCode);
         float voxelScale = 1 / powf(2, *currentNode->octalCode);
-        
+
         // populate the array with points for the 8 vertices
         // and RGB color for each added vertex
-        for (int j = 0; j < VERTEX_POINTS_PER_VOXEL; j++ ) {
+        for (int j = 0; j < CORNER_POINTS_PER_VOXEL; j++ ) {
+
             *writeVerticesEndPointer = startVertex[j % 3] + (identityVertices[j] * voxelScale);
             *(writeColorsArray + (writeVerticesEndPointer - writeVerticesArray)) = currentNode->color[j % 3];
-            
+
             writeVerticesEndPointer++;
+
         }
         
         voxelsAdded++;
-       
-        delete [] startVertex;
+
+       delete [] startVertex;
+
     }
 
     return voxelsAdded;
@@ -185,24 +235,22 @@ VoxelSystem* VoxelSystem::clone() const {
 
 void VoxelSystem::init() {
     // prep the data structures for incoming voxel data
-    writeVerticesArray = new GLfloat[VERTEX_POINTS_PER_VOXEL * MAX_VOXELS_PER_SYSTEM];
+    writeVerticesArray = new GLfloat[CORNER_POINTS_PER_VOXEL * MAX_VOXELS_PER_SYSTEM];
     readVerticesArray = new GLfloat[VERTEX_POINTS_PER_VOXEL * MAX_VOXELS_PER_SYSTEM];
-    writeColorsArray = new GLubyte[VERTEX_POINTS_PER_VOXEL * MAX_VOXELS_PER_SYSTEM];
+    writeColorsArray = new GLubyte[CORNER_POINTS_PER_VOXEL * MAX_VOXELS_PER_SYSTEM];
     readColorsArray = new GLubyte[VERTEX_POINTS_PER_VOXEL * MAX_VOXELS_PER_SYSTEM];
+    readNormalsArray = new GLfloat[VERTEX_POINTS_PER_VOXEL * MAX_VOXELS_PER_SYSTEM];
     
     GLuint *indicesArray = new GLuint[INDICES_PER_VOXEL * MAX_VOXELS_PER_SYSTEM];
-    
+
+
     // populate the indicesArray
     // this will not change given new voxels, so we can set it all up now
+    GLuint index = 0;
     for (int n = 0; n < MAX_VOXELS_PER_SYSTEM; n++) {
-        // fill the indices array
-        int voxelIndexOffset = n * INDICES_PER_VOXEL;
-        GLuint *currentIndicesPos = indicesArray + voxelIndexOffset;
-        int startIndex = (n * VERTICES_PER_VOXEL);
         
         for (int i = 0; i < INDICES_PER_VOXEL; i++) {
-            // add indices for this side of the cube
-            currentIndicesPos[i] = startIndex + identityIndices[i];
+            indicesArray[index++] = vertexFaceIndices[i] + (VERTICES_PER_VOXEL*n);
         }
     }
     
@@ -215,7 +263,12 @@ void VoxelSystem::init() {
     glGenBuffers(1, &vboColorsID);
     glBindBuffer(GL_ARRAY_BUFFER, vboColorsID);
     glBufferData(GL_ARRAY_BUFFER, VERTEX_POINTS_PER_VOXEL * sizeof(GLubyte) * MAX_VOXELS_PER_SYSTEM, NULL, GL_DYNAMIC_DRAW);
-    
+
+    // VBO for normalsArray
+    glGenBuffers(1, &vboNormalsID);
+    glBindBuffer(GL_ARRAY_BUFFER, vboNormalsID);
+    glBufferData(GL_ARRAY_BUFFER, VERTEX_POINTS_PER_VOXEL * sizeof(GLfloat) * MAX_VOXELS_PER_SYSTEM, NULL, GL_DYNAMIC_DRAW);
+
     // VBO for the indicesArray
     glGenBuffers(1, &vboIndicesID);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboIndicesID);
@@ -229,53 +282,52 @@ void VoxelSystem::init() {
 
 void VoxelSystem::render() {
 
-    glPushMatrix();
-    
-    
     if (readVerticesEndPointer != readVerticesArray) {
         // try to lock on the buffer write
         // just avoid pulling new data if it is currently being written
         if (pthread_mutex_trylock(&bufferWriteLock) == 0) {
             
             glBindBuffer(GL_ARRAY_BUFFER, vboVerticesID);
-            glBufferData(GL_ARRAY_BUFFER, VERTEX_POINTS_PER_VOXEL * sizeof(GLfloat) * MAX_VOXELS_PER_SYSTEM, NULL, GL_DYNAMIC_DRAW);
             glBufferSubData(GL_ARRAY_BUFFER, 0, (readVerticesEndPointer - readVerticesArray) * sizeof(GLfloat), readVerticesArray);
             
             glBindBuffer(GL_ARRAY_BUFFER, vboColorsID);
-            glBufferData(GL_ARRAY_BUFFER, VERTEX_POINTS_PER_VOXEL * sizeof(GLubyte) * MAX_VOXELS_PER_SYSTEM, NULL, GL_DYNAMIC_DRAW);
             glBufferSubData(GL_ARRAY_BUFFER, 0, (readVerticesEndPointer - readVerticesArray) * sizeof(GLubyte), readColorsArray);
-            
+
+            glBindBuffer(GL_ARRAY_BUFFER, vboNormalsID);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, (readVerticesEndPointer - readVerticesArray) * sizeof(GLfloat), readNormalsArray);
+
             readVerticesEndPointer = readVerticesArray;
             
             pthread_mutex_unlock(&bufferWriteLock);
         }
     }
 
-    // tell OpenGL where to find vertex and color information
-    glEnableClientState(GL_VERTEX_ARRAY);
-    glEnableClientState(GL_COLOR_ARRAY);
-    
+    glEnableVertexAttribArray(VERTEX_ATTRIB);
+    glEnableVertexAttribArray(COLOR_ATTRIB);
+    glEnableVertexAttribArray(NORMAL_ATTRIB);
+
     glBindBuffer(GL_ARRAY_BUFFER, vboVerticesID);
-    glVertexPointer(3, GL_FLOAT, 0, 0);
-    
+    glVertexAttribPointer(VERTEX_ATTRIB, 3, GL_FLOAT, GL_FALSE, 0, (GLvoid*)0);
+
+
     glBindBuffer(GL_ARRAY_BUFFER, vboColorsID);
-    glColorPointer(3, GL_UNSIGNED_BYTE, 0, 0);
-   
+    glVertexAttribPointer(COLOR_ATTRIB, 3, GL_UNSIGNED_BYTE, GL_TRUE, 0, (GLvoid*)0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vboNormalsID);
+    glVertexAttribPointer(NORMAL_ATTRIB, 3, GL_FLOAT, GL_FALSE, 0, (GLvoid*)0);
+
     // draw the number of voxels we have
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vboIndicesID);
-    glScalef(10, 10, 10);
     glDrawElements(GL_TRIANGLES, 36 * voxelsRendered, GL_UNSIGNED_INT, 0);
-    
-    // deactivate vertex and color arrays after drawing
-    glDisableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_COLOR_ARRAY);
-    
+
+
+
+
+
     // bind with 0 to switch back to normal operation
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    
-    // scale back down to 1 so heads aren't massive
-    glPopMatrix();
+
 }
 
 void VoxelSystem::simulate(float deltaTime) {

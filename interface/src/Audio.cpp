@@ -441,6 +441,9 @@ Audio::Audio(Oscilloscope *s, Head *linkedHead)
     
     switchToResourcesIfRequired();
     FILE *soundFile = fopen("audio/walking.raw", "r");
+
+    if(!soundFile)
+        goto error;
     
     // get length of file:
     std::fseek(soundFile, 0, SEEK_END);

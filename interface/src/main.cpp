@@ -54,6 +54,7 @@
 #include "UDPSocket.h"
 #include "SerialInterface.h"
 #include <SharedUtil.h>
+#include "Shader.h"
 
 using namespace std;
 
@@ -110,6 +111,8 @@ Field field;
 
 #ifndef _WIN32
 Audio audio(&audioScope, &myHead);
+#else
+#define NO_AUDIO
 #endif
 
 #define RENDER_FRAME_MSECS 8
@@ -172,6 +175,8 @@ char texture_filename[] = "images/int-texture256-v4.png";
 unsigned int texture_width = 256;
 unsigned int texture_height = 256;
 
+
+CVoxelShader voxelShader;
 
 float particle_attenuation_quadratic[] =  { 0.0f, 0.0f, 2.0f }; // larger Z = smaller particles
 float pointer_attenuation_quadratic[] =  { 1.0f, 0.0f, 0.0f }; // for 2D view
@@ -291,6 +296,52 @@ void initDisplay(void)
     if (fullscreen) glutFullScreen();
 }
 
+//open shader source files, read in contents and attempt to
+//compile a shader program from them
+void createShader()
+{
+    string vertexShaderFile = "shaders/vertex.vs";
+    string fragmentShaderFile = "shaders/fragment.fs";
+
+    string vertexSourceCode, fragmentSourceCode;
+
+    ifstream file;
+    file.open(vertexShaderFile.c_str(), ios_base::in);
+    if(file.is_open())
+    {
+        stringstream buffer;
+        buffer << file.rdbuf();
+        vertexSourceCode = buffer.str();
+
+        file.close();
+    }
+    else
+    {
+        printf("Couldn't find shader source '%s'\n", vertexShaderFile.c_str());
+        return;
+    }
+
+    file.open(fragmentShaderFile.c_str(), ios_base::in);
+    if(file.is_open())
+    {
+        stringstream buffer;
+        buffer << file.rdbuf();
+        fragmentSourceCode = buffer.str();
+
+        file.close();
+    }
+    else
+    {
+        printf("Couldn't find shader source '%s'\n", fragmentShaderFile.c_str());
+        return;
+    }
+
+    //if we have got this far we should have our shader source code
+
+    //try to compile it, if it fails we should get some log print out
+    voxelShader.compile(vertexSourceCode, fragmentSourceCode);
+}
+
 void init(void)
 {
     voxels.init();
@@ -326,13 +377,15 @@ void init(void)
     
     gettimeofday(&timer_start, NULL);
     gettimeofday(&last_frame, NULL);
+
+    createShader();
 }
 
 void terminate () {
     // Close serial port
     //close(serial_fd);
 
-    #ifndef _WIN32
+    #ifndef NO_AUDIO
     audio.terminate();
     #endif
     stopNetworkReceiveThread = true;
@@ -446,7 +499,7 @@ void simulateHead(float frametime)
     
     //  Get audio loudness data from audio input device
     float loudness, averageLoudness;
-    #ifndef _WIN32
+    #ifndef NO_AUDIO
     audio.getInputLoudness(&loudness, &averageLoudness);
     myHead.setLoudness(loudness);
     myHead.setAverageLoudness(averageLoudness);
@@ -464,46 +517,88 @@ int render_test_direction = 1;
 
 void display(void)
 {
+
     glEnable (GL_DEPTH_TEST);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_LIGHTING);
     glEnable(GL_LINE_SMOOTH);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glMatrixMode(GL_MODELVIEW);
-    
+
     glPushMatrix();  {
         glLoadIdentity();
-    
+
         //  Setup 3D lights
         glEnable(GL_COLOR_MATERIAL);
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
         
-        GLfloat light_position0[] = { 1.0, 1.0, 0.0, 0.0 };
+        GLfloat light_position0[] = { 0.0, 0.0, 0.0, 1.0 };
         glLightfv(GL_LIGHT0, GL_POSITION, light_position0);
-        GLfloat ambient_color[] = { 0.7, 0.7, 0.8 };  //{ 0.125, 0.305, 0.5 };  
+        GLfloat ambient_color[] = { 0.125, 0.305, 0.5 };
         glLightfv(GL_LIGHT0, GL_AMBIENT, ambient_color);
-        GLfloat diffuse_color[] = { 0.8, 0.7, 0.7 };  //{ 0.5, 0.42, 0.33 }; 
+        GLfloat diffuse_color[] = { 0.5, 0.42, 0.33 };
         glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse_color);
-        GLfloat specular_color[] = { 1.0, 1.0, 1.0, 1.0};
+        GLfloat specular_color[] = { 0.0, 1.0, 0.0, 1.0};
         glLightfv(GL_LIGHT0, GL_SPECULAR, specular_color);
         
-        glMaterialfv(GL_FRONT, GL_SPECULAR, specular_color);
-        glMateriali(GL_FRONT, GL_SHININESS, 96);
+        glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, specular_color);
+        glMateriali(GL_FRONT_AND_BACK, GL_SHININESS, 96);
            
         //  Rotate, translate to camera location
         glRotatef(myHead.getRenderPitch(), 1, 0, 0);
         glRotatef(myHead.getRenderYaw(), 0, 1, 0);
         glTranslatef(myHead.getPos().x, myHead.getPos().y, myHead.getPos().z);
-    
-        glColor3f(1,0,0);
+
+        //if we have the voxel shader working, use it
+        if(voxelShader.valid())
+        {
+            //create the projection matrix, this should be based on the screen ratio
+            glm::mat4 projectionMatrix = glm::perspective(45.0f, 4.0f / 3.0f, 0.1f, 100.f);
+
+            //the view matrix is a product of the 'head' camera
+            glm::mat4 viewMatrix;
+            viewMatrix = glm::rotate(glm::mat4(1.0), myHead.getRenderPitch(), glm::vec3(1, 0, 0));
+            viewMatrix = glm::rotate(viewMatrix, myHead.getRenderYaw(), glm::vec3(0, 1, 0));
+            viewMatrix = glm::translate(viewMatrix, myHead.getPos());
+
+            //the model matrix for the voxels
+            glm::mat4 modelMatrix = glm::scale(glm::vec3(10, 10, 10));
+            glm::mat4 inverseModelMatrix = glm::inverse(modelMatrix);
+
+            //the resultant MVP matrix required by the shader
+            glm::mat4 MVPMatrix = projectionMatrix * viewMatrix * modelMatrix;
+
+            //put the light and eye positions in model space
+            glm::vec4 LightPos(light_position0[0], light_position0[1], light_position0[2], 1.0);
+      //      LightPos = LightPos * rotate;
+            glm::vec3 LightPosModel( inverseModelMatrix * LightPos);
+            glm::vec3 eyePos = myHead.getPos();
+            glm::vec3 EyePosModel(inverseModelMatrix  * glm::vec4(eyePos.x, eyePos.y, eyePos.z, 1.0));
+
+            voxelShader.useShader();
+
+            //set shader state
+            voxelShader.setMVPMatrix(MVPMatrix);
+            voxelShader.setLightPos(LightPosModel);
+            voxelShader.setDiffuseColor(glm::vec3(diffuse_color[0], diffuse_color[1], diffuse_color[2]));
+            voxelShader.setAmbientColor(glm::vec3(ambient_color[0], ambient_color[1], ambient_color[2]));
+            voxelShader.setSpecularColor(glm::vec3(specular_color[0], specular_color[1], specular_color[2]));
+            voxelShader.setSpecularPower(96);
+            voxelShader.setEyePos(EyePosModel);
+
+            //  Draw voxels
+            voxels.render();
+
+            voxelShader.cleanUp();
+        }
+
+        glColor3f(1,0.0,0.0);
         glutSolidSphere(0.25, 15, 15);
-    
+
         //  Draw cloud of dots
-        glDisable( GL_POINT_SPRITE_ARB );
-        glDisable( GL_TEXTURE_2D );
+        //glDisable( GL_POINT_SPRITE_ARB );
+        //glDisable( GL_TEXTURE_2D );
 //        if (!display_head) cloud.render();
-    
-        //  Draw voxels
-        voxels.render();
+
     
         //  Draw field vectors
         if (display_field) field.render();
@@ -519,7 +614,9 @@ void display(void)
                 glPopMatrix();
             }
         }
-    
+
+
+
         if (!display_head) balls.render();
     
         //  Render the world box
@@ -531,6 +628,12 @@ void display(void)
         glTranslatef(0.f, 0.f, -7.f);
         myHead.render(display_head, 1);
         glPopMatrix();
+
+
+
+
+
+
     }
     
     glPopMatrix();
@@ -545,7 +648,7 @@ void display(void)
 
         //lattice.render(WIDTH, HEIGHT);
         //myFinger.render();
-        #ifndef _WIN32
+        #ifndef NO_AUDIO
         audio.render(WIDTH, HEIGHT);
         if (audioScope.getState()) audioScope.render();
         #endif
@@ -588,7 +691,7 @@ void display(void)
             if ((render_test_spot > WIDTH-100) || (render_test_spot < 100)) render_test_direction *= -1.0;
             
         }
-    
+
         
     //  Show detected levels from the serial I/O ADC channel sensors
     if (display_levels) serialPort.renderLevels(WIDTH,HEIGHT);
@@ -602,7 +705,7 @@ void display(void)
     drawtext(WIDTH-200,20, 0.10, 0, 1.0, 0, agents, 1, 1, 0);
     
     glPopMatrix();
-    
+
 
     glutSwapBuffers();
     framecount++;
@@ -690,8 +793,9 @@ void specialkey(int k, int x, int y)
             if (glutGetModifiers() == GLUT_ACTIVE_SHIFT) myHead.setDriveKeys(RIGHT, 1);
             else myHead.setDriveKeys(ROT_RIGHT, 1);   
         }
-        
+        #ifndef NO_AUDIO
         audio.setWalkingState(true);
+        #endif
     }    
 }
 
@@ -729,7 +833,7 @@ void key(unsigned char k, int x, int y)
     
     if (k == 'h') {
         display_head = !display_head;
-        #ifndef _WIN32
+        #ifndef NO_AUDIO
         audio.setMixerLoopbackFlag(display_head);
         #endif
     }
@@ -892,7 +996,7 @@ void attachNewHeadToAgent(Agent *newAgent) {
     }
 }
 
-#ifndef _WIN32
+#ifndef NO_AUDIO
 void audioMixerUpdate(in_addr_t newMixerAddress, in_port_t newMixerPort) {
     audio.updateMixerParams(newMixerAddress, newMixerPort);
 }
@@ -915,7 +1019,7 @@ int main(int argc, const char * argv[])
     // the callback for our instance of AgentList is attachNewHeadToAgent
     agentList.linkedDataCreateCallback = &attachNewHeadToAgent;
     
-    #ifndef _WIN32
+    #ifndef NO_AUDIO
     agentList.audioMixerSocketUpdate = &audioMixerUpdate;
     #endif
 

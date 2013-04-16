@@ -40,7 +40,7 @@ protected:
     virtual void    bindEntryPoints() = 0;
 
     bool    isValid;
-    GLuint programId;
+    GLuint  programId;
 
 };
 

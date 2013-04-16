@@ -46,10 +46,12 @@ private:
     GLfloat *readVerticesEndPointer;
     GLfloat *writeVerticesArray;
     GLubyte *writeColorsArray;
+    GLfloat *readNormalsArray;
     GLfloat *writeVerticesEndPointer;
     GLuint vboVerticesID;
     GLuint vboColorsID;
     GLuint vboIndicesID;
+    GLuint vboNormalsID;
     pthread_mutex_t bufferWriteLock;
     
     int treeToArrays(VoxelNode *currentNode, float nodePosition[3]);

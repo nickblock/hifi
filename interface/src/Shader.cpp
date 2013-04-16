@@ -3,33 +3,33 @@
 
 CShader::CShader()
 {
-    programId = -1;
+    programId = 0;
     isValid = false;
 }
 bool CShader::compile(std::string vertexSource, std::string fragmentSource)
 {
     //create gl handles for program object and source, we only need to keep the programId
-    programId = glCreateProgramObjectARB();
+    programId = glCreateProgram();
 
-    GLuint vertId = glCreateShaderObjectARB(GL_VERTEX_SHADER);
-    GLuint fragId = glCreateShaderObjectARB(GL_FRAGMENT_SHADER);
+    GLuint vertId = glCreateShader(GL_VERTEX_SHADER);
+    GLuint fragId = glCreateShader(GL_FRAGMENT_SHADER);
 
     //compile source code
     const char* vertexSourceP = vertexSource.c_str();
     const char* fragmentSourceP = fragmentSource.c_str();
-    glShaderSourceARB(vertId, 1, &vertexSourceP, NULL);
-    glShaderSourceARB(fragId, 1, &fragmentSourceP, NULL);
+    glShaderSource(vertId, 1, &vertexSourceP, NULL);
+    glShaderSource(fragId, 1, &fragmentSourceP, NULL);
 
     //attach the 2 source objects and attempt to link them to create shader program
-    glAttachObjectARB(programId, vertId);
-    glAttachObjectARB(programId, fragId);
+    glAttachShader(programId, vertId);
+    glAttachShader(programId, fragId);
 
     //bind vertex attributes
     glBindAttribLocation(programId, VERTEX_ATTRIB, "inVertex");
     glBindAttribLocation(programId, NORMAL_ATTRIB, "inNormal");
     glBindAttribLocation(programId, COLOR_ATTRIB, "inColor");
 
-    glLinkProgramARB(programId);
+    glLinkProgram(programId);
 
     //check if we were successful
     GLint linkStatus;
@@ -43,13 +43,13 @@ bool CShader::compile(std::string vertexSource, std::string fragmentSource)
 
         char infoLog[1024];
         GLsizei len;
-        glGetInfoLogARB(vertId, 1024, &len, infoLog);
+        glGetShaderInfoLog(vertId, 1024, &len, infoLog);
         printf("%s\n",infoLog);
 
-        glGetInfoLogARB(fragId, 1024, &len, infoLog);
+        glGetShaderInfoLog(fragId, 1024, &len, infoLog);
         printf("%s\n", infoLog);
 
-        glGetInfoLogARB(programId, 1024, &len, infoLog);
+        glGetProgramInfoLog(programId, 1024, &len, infoLog);
         printf("%s\n",infoLog);
 
         return false;
@@ -92,7 +92,7 @@ bool CShader::valid()
 
 void CShader::useShader()
 {
-    glUseProgram(programId);
+    glUseProgram((GLuint)programId);
 }
 void CShader::cleanUp()
 {
@@ -110,7 +110,7 @@ CVoxelShader::CVoxelShader() : CShader()
 
 void CVoxelShader::bindEntryPoints()
 {
-    glUseProgram(programId);
+    glUseProgram((GLuint)programId);
 
 
     //find uniform locations
