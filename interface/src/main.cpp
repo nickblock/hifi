@@ -109,10 +109,14 @@ Lattice lattice(160,100);
 Finger myFinger(WIDTH, HEIGHT);
 Field field;
 
-#ifndef _WIN32
-Audio audio(&audioScope, &myHead);
-#else
+#ifdef _WIN32
 #define NO_AUDIO
+#endif
+
+#define NO_AUDIO
+
+#ifndef NO_AUDIO
+Audio audio(&audioScope, &myHead);
 #endif
 
 #define RENDER_FRAME_MSECS 8

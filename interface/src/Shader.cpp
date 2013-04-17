@@ -19,7 +19,9 @@ bool CShader::compile(std::string vertexSource, std::string fragmentSource)
     const char* fragmentSourceP = fragmentSource.c_str();
     glShaderSource(vertId, 1, &vertexSourceP, NULL);
     glShaderSource(fragId, 1, &fragmentSourceP, NULL);
-
+    glCompileShader(vertId);
+    glCompileShader(fragId);
+    
     //attach the 2 source objects and attempt to link them to create shader program
     glAttachShader(programId, vertId);
     glAttachShader(programId, fragId);
@@ -40,7 +42,7 @@ bool CShader::compile(std::string vertexSource, std::string fragmentSource)
         //to see where we may have gone wrong
 
         printf("Shader Failed to Compile\n");
-
+        
         char infoLog[1024];
         GLsizei len;
         glGetShaderInfoLog(vertId, 1024, &len, infoLog);
