@@ -1,33 +1,31 @@
 //
 //  Util.h
-//  interface
+//  interface/src
 //
 //  Created by Philip Rosedale on 8/24/12.
-//  Copyright (c) 2012 High Fidelity, Inc. All rights reserved.
+//  Copyright 2012 High Fidelity, Inc.
+//
+//  Distributed under the Apache License, Version 2.0.
+//  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 //
 
-#ifndef __interface__Util__
-#define __interface__Util__
-
-#ifdef _WIN32
-#include "Systime.h"
-#else
-#include <sys/time.h>
-#endif
+#ifndef hifi_Util_h
+#define hifi_Util_h
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
-float azimuth_to(glm::vec3 head_pos, glm::vec3 source_pos);
-float angle_to(glm::vec3 head_pos, glm::vec3 source_pos, float render_yaw, float head_yaw);
+class ShapeEntityItem;
+class ShapeInfo;
 
-float randFloat();
-void render_world_box();
-void render_vector(glm::vec3 * vec);
-void drawtext(int x, int y, float scale, float rotate, float thick, int mono, char *string, 
-              float r=1.0, float g=1.0, float b=1.0);
-void drawvec3(int x, int y, float scale, float rotate, float thick, int mono, glm::vec3 vec, 
-              float r=1.0, float g=1.0, float b=1.0);
-double diffclock(timeval *clock1,timeval *clock2);
+void runTimingTests();
+void runUnitTests();
 
+bool rayIntersectsSphere(const glm::vec3& rayStarting, const glm::vec3& rayNormalizedDirection,
+    const glm::vec3& sphereCenter, float sphereRadius, float& distance);
 
-#endif
+bool pointInSphere(glm::vec3& point, glm::vec3& sphereCenter, double sphereRadius);
+
+void shapeInfoCalculator(const ShapeEntityItem * const shapeEntity, ShapeInfo &shapeInfo);
+
+#endif // hifi_Util_h

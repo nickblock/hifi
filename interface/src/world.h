@@ -1,19 +1,17 @@
 //
 //  world.h
-//  interface
+//  interface/src
 //
 //  Created by Philip Rosedale on 8/23/12.
-//  Copyright (c) 2012 High Fidelity, Inc. All rights reserved.
+//  Copyright 2012 High Fidelity, Inc.
+//
+//  Distributed under the Apache License, Version 2.0.
+//  See the accompanying file LICENSE or http://www.apache.org/licenses/LICENSE-2.0.html
 //
 
-//  Simulation happens in positive cube with edge of size WORLD_SIZE    
+#ifndef hifi_world_h
+#define hifi_world_h
 
-#ifndef __interface__world__
-#define __interface__world__
+const float GRAVITY_EARTH = 9.80665f;
 
-
-const float WORLD_SIZE = 10.0;
-#define PI 3.14159265
-#define PIf 3.14159265f
-
-#endif
+#endif // hifi_world_h

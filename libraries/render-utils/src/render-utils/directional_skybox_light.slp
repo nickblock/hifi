@@ -1,0 +1,2 @@
+VERTEX deferred_light
+DEFINES ambient:f shadow:f
